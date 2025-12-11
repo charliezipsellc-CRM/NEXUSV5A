@@ -1,0 +1,459 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  RECRUIT
+  AGENT
+  SENIOR_AGENT
+  MANAGER
+  AGENCY_OWNER
+  FOUNDER
+  PLATFORM_OWNER
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  SET
+  SAT
+  CLOSED
+  NO_SHOW
+  DEAD
+  DUPLICATE
+}
+
+enum LeadSource {
+  FFL
+  BRONZE
+  THIRD_PARTY
+  NEXUS_NATIVE
+  REFERRAL
+  WALK_IN
+}
+
+enum LeadTag {
+  AGED
+  NEW
+  INTERNET
+  LIVE_TRANSFER
+  WARM
+  COLD
+}
+
+enum RecruitStatus {
+  NEW
+  SUBMITTED_TO_TYLICA
+  AWAITING_FFL_EMAILS
+  LICENSED
+  ACTIVATED
+}
+
+enum PolicyStatus {
+  SUBMITTED
+  PENDING
+  APPROVED
+  ISSUED
+  PAID
+  CHARGEBACK_RISK
+  CHARGEBACKED
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+  TAX
+  LEAD_SPEND
+  SAVINGS
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String?
+  image     String?
+  role      Role     @default(RECRUIT)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  agencyId String?
+  agency   Agency? @relation(fields: [agencyId], references: [id])
+  
+  teamId String?
+  team   Team? @relation(fields: [teamId], references: [id])
+
+  // Profile relationships
+  recruitProfile   RecruitProfile?
+  agentProfile     AgentProfile?
+  
+  // Owned entities
+  ownedLeads       Lead[]
+  createdTasks     Task[]           @relation("CreatedBy")
+  assignedTasks    Task[]           @relation("AssignedTo")
+  financeTransactions FinanceTransaction[]
+  sentMessages     Message[]        @relation("SentBy")
+  receivedMessages Message[]        @relation("ReceivedBy")
+  appointments     Appointment[]
+  policies         Policy[]
+  leadBatches      LeadBatch[]
+  driftAlerts      DriftAlert[]
+  aiInteractions   AIInteraction[]
+  
+  @@map("users")
+}
+
+model Agency {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+  teams       Team[]
+  leadVendors LeadVendor[]
+  
+  @@map("agencies")
+}
+
+model Team {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  agencyId String
+  agency   Agency @relation(fields: [agencyId], references: [id])
+  
+  managerId String? @unique
+  manager   User?   @relation(fields: [managerId], references: [id])
+  
+  members   User[]
+  
+  @@map("teams")
+}
+
+model RecruitProfile {
+  id         String        @id @default(cuid())
+  status     RecruitStatus @default(NEW)
+  phone      String?
+  address    String?
+  city       String?
+  state      String?
+  zipCode    String?
+  dateOfBirth DateTime?
+  
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("recruit_profiles")
+}
+
+model AgentProfile {
+  id          String   @id @default(cuid())
+  npn         String?  @unique
+  licenseStates String[]
+  carrierContracts String[]
+  
+  // Production metrics
+  totalApps   Int      @default(0)
+  totalPremium Int     @default(0)
+  monthlyGoal Int      @default(0)
+  
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("agent_profiles")
+}
+
+model LeadVendor {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  type        LeadSource
+  description String?
+  costPerLead Decimal?
+  
+  agencyId String?
+  agency   Agency? @relation(fields: [agencyId], references: [id])
+  
+  leadBatches LeadBatch[]
+  
+  @@map("lead_vendors")
+}
+
+model LeadBatch {
+  id           String   @id @default(cuid())
+  name         String
+  cost         Decimal
+  size         Int
+  purchaseDate DateTime @default(now())
+  
+  vendorId   String
+  vendor     LeadVendor @relation(fields: [vendorId], references: [id])
+  
+  ownerId    String
+  owner      User       @relation(fields: [ownerId], references: [id])
+  
+  leads      Lead[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("lead_batches")
+}
+
+model Lead {
+  id          String     @id @default(cuid())
+  firstName   String
+  lastName    String
+  email       String?
+  phone       String
+  address     String?
+  city        String?
+  state       String?
+  zipCode     String?
+  age         Int?
+  
+  status      LeadStatus @default(NEW)
+  source      LeadSource
+  tag         LeadTag?
+  
+  notes       String?
+  
+  // Ownership
+  ownerId     String
+  owner       User       @relation(fields: [ownerId], references: [id])
+  
+  // Batch info
+  batchId     String
+  batch       LeadBatch  @relation(fields: [batchId], references: [id])
+  
+  // Activity tracking
+  activities  LeadActivity[]
+  
+  // Client relationship
+  clientId    String?
+  client      Client?    @relation(fields: [clientId], references: [id])
+  
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  
+  @@map("leads")
+}
+
+model LeadActivity {
+  id         String   @id @default(cuid())
+  type       String   // "call", "email", "appointment", "status_change"
+  description String
+  
+  leadId     String
+  lead       Lead     @relation(fields: [leadId], references: [id])
+  
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  
+  createdAt  DateTime @default(now())
+  
+  @@map("lead_activities")
+}
+
+model Client {
+  id        String   @id @default(cuid())
+  firstName String
+  lastName  String
+  email     String?
+  phone     String
+  
+  // Relationships
+  agentId   String
+  agent     User     @relation(fields: [agentId], references: [id])
+  
+  leadId    String?  @unique
+  lead      Lead?    @relation(fields: [leadId], references: [id])
+  
+  policies  Policy[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("clients")
+}
+
+model Policy {
+  id           String       @id @default(cuid())
+  carrier      String
+  productType  String
+  faceAmount   Decimal?
+  premium      Decimal?
+  status       PolicyStatus @default(SUBMITTED)
+  
+  issueDate    DateTime?
+  submittedDate DateTime    @default(now())
+  
+  // Relationships
+  clientId     String
+  client       Client       @relation(fields: [clientId], references: [id])
+  
+  agentId      String
+  agent        User         @relation(fields: [agentId], references: [id])
+  
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  
+  @@map("policies")
+}
+
+model FinanceTransaction {
+  id          String          @id @default(cuid())
+  type        TransactionType
+  amount      Decimal
+  category    String
+  description String?
+  date        DateTime
+  
+  userId      String
+  user        User            @relation(fields: [userId], references: [id])
+  
+  // Optional links
+  policyId    String?
+  policy      Policy?         @relation(fields: [policyId], references: [id])
+  
+  batchId     String?
+  batch       LeadBatch?      @relation(fields: [batchId], references: [id])
+  
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  
+  @@map("finance_transactions")
+}
+
+model Task {
+  id          String       @id @default(cuid())
+  title       String
+  description String?
+  priority    TaskPriority @default(MEDIUM)
+  status      TaskStatus   @default(PENDING)
+  dueDate     DateTime?
+  
+  createdById String
+  createdBy   User         @relation("CreatedBy", fields: [createdById], references: [id])
+  
+  assignedToId String
+  assignedTo   User         @relation("AssignedTo", fields: [assignedToId], references: [id])
+  
+  completedAt  DateTime?
+  
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  
+  @@map("tasks")
+}
+
+model Appointment {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  startTime   DateTime
+  endTime     DateTime
+  
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  
+  leadId      String?
+  lead        Lead?    @relation(fields: [leadId], references: [id])
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@map("appointments")
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  content   String
+  read      Boolean  @default(false)
+  
+  senderId  String
+  sender    User     @relation("SentBy", fields: [senderId], references: [id])
+  
+  receiverId String
+  receiver   User     @relation("ReceivedBy", fields: [receiverId], references: [id])
+  
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  
+  @@map("messages")
+}
+
+model DriftAlert {
+  id          String   @id @default(cuid())
+  type        String   // "production_drop", "under_dialing", "no_appointments"
+  severity    String   // "low", "medium", "high"
+  description String
+  resolved    Boolean  @default(false)
+  
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@map("drift_alerts")
+}
+
+model AIInteraction {
+  id          String   @id @default(cuid())
+  type        String   // "mentor", "underwriting", "scripts"
+  prompt      String
+  response    String
+  
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  
+  createdAt   DateTime @default(now())
+  
+  @@map("ai_interactions")
+}
+
+model Goal {
+  id          String   @id @default(cuid())
+  type        String   // "savings", "production", "dials"
+  target      Decimal
+  current     Decimal  @default(0)
+  deadline    DateTime
+  
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@map("goals")
+}
